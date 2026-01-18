@@ -1,3 +1,29 @@
+# Ignore video files and large outputs
+*.mp4
+*.MP4
+*.mov
+*.MOV
+*.mkv
+*.MKV
+*.avi
+*.AVI
+*.wmv
+*.WMV
+
+# Camera-specific and auxiliary files
+*.THM
+*.LRV
+*._gopro-web._tcp.local.*
+
+# Output folders and large archives
+/outputs/
+/recordings/
+/merged/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+/.vscode/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
