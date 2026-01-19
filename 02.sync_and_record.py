@@ -37,7 +37,8 @@ def sync_and_start_recording():
     # Step 4: Start recording
     print("Starting recording on all cameras...")
     with ThreadPoolExecutor() as executor:
-        executor.map(lambda d: start_recording(d["ip"]), devices)
+        # Use list() to consume the iterator and wait for all tasks to complete
+        list(executor.map(lambda d: start_recording(d["ip"]), devices))
 
 if __name__ == "__main__":
     sync_and_start_recording()

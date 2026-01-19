@@ -179,60 +179,72 @@ def export_synced_individuals(files, trims, duration, out_dir):
 
 def export_grid(pre_synced_files, out_path):
     n = len(pre_synced_files)
-    print(f"\nExporting grid preview for {n} videos (video only)...")
+    print(f"\nExporting 3x3 grid preview for {n} videos (video only)...")
     if n == 0:
         raise ValueError("No files provided for grid export")
 
-    # Compute grid size: square-ish layout
-    import math
-    cols = math.ceil(math.sqrt(n))
-    rows = math.ceil(n / cols)
+    # Fixed 3x3 grid (9 positions)
+    cols = 3
+    rows = 3
+    total_positions = 9
 
     # Compute per-tile size (use 1920 width for overall canvas)
     total_width = 1920
-    tile_w = max(64, total_width // cols)
-    tile_h = int(tile_w * 9 / 16)
+    tile_w = total_width // cols  # 640 pixels per tile
+    tile_h = int(tile_w * 9 / 16)  # 16:9 aspect ratio, 360 pixels
+
+    # Get duration of first video for black filler
+    first_video_info = ffprobe_info(pre_synced_files[0])
+    duration = get_video_duration_seconds(first_video_info)
+    if duration <= 0:
+        duration = 10.0  # fallback duration
 
     cmd = ['ffmpeg', '-y']
+    # Add all video inputs
     for f in pre_synced_files:
         cmd += ['-i', f]
+    
+    # Add black video inputs for empty positions (need total_positions - n black videos)
+    num_black_videos = total_positions - n
+    if num_black_videos > 0:
+        # Create black video using color filter
+        for i in range(num_black_videos):
+            # Use color source for black video
+            cmd += ['-f', 'lavfi', '-i', f'color=c=black:s={tile_w}x{tile_h}:d={duration}']
 
-    # scale each input to tile_w x tile_h
+    # Scale each input video to tile_w x tile_h
     fc_parts = []
     for i in range(n):
         fc_parts.append(f"[{i}:v]scale={tile_w}:{tile_h}[v{i}]")
+    
+    # Scale black videos (they start at index n)
+    for i in range(num_black_videos):
+        black_idx = n + i
+        fc_parts.append(f"[{black_idx}:v]scale={tile_w}:{tile_h}[v{black_idx}]")
 
-    # create hstack for each row
+    # Create hstack for each row (3 videos per row)
     row_labels = []
     full_row_width = tile_w * cols
     for r in range(rows):
-        start = r * cols
-        end = min(start + cols, n)
-        inputs = [f"[v{i}]" for i in range(start, end)]
+        row_videos = []
+        for c in range(cols):
+            pos = r * cols + c
+            if pos < n:
+                # Real video
+                row_videos.append(f"[v{pos}]")
+            else:
+                # Black video (index starts from n)
+                black_idx = n + (pos - n)
+                row_videos.append(f"[v{black_idx}]")
+        
         row_label = f"row{r}"
-        if len(inputs) == 1:
-            # single input: pad to full row width to match other rows
-            fc_parts.append(f"{inputs[0]}pad={full_row_width}:{tile_h}:0:0:black[{row_label}]")
-        elif len(inputs) < cols:
-            # partial row: hstack then pad to full row width
-            temp_label = f"row{r}_temp"
-            fc_parts.append(f"{''.join(inputs)}hstack=inputs={len(inputs)}[{temp_label}]")
-            fc_parts.append(f"[{temp_label}]pad={full_row_width}:{tile_h}:0:0:black[{row_label}]")
-        else:
-            # full row: just hstack
-            fc_parts.append(f"{''.join(inputs)}hstack=inputs={len(inputs)}[{row_label}]")
+        # Always hstack 3 inputs
+        fc_parts.append(f"{''.join(row_videos)}hstack=inputs=3[{row_label}]")
         row_labels.append(f"[{row_label}]")
 
-    # if multiple rows, vstack them
-    if len(row_labels) == 1:
-        final_label = row_labels[0]
-    else:
-        # combine rows via vstack in groups if needed
-        # ffmpeg vstack can take multiple inputs: vstack=inputs=R
-        fc_parts.append(f"{''.join(row_labels)}vstack=inputs={len(row_labels)}[out]")
-        final_label = '[out]'
-
-    # For single-row case the existing row label will be used as the final map
+    # vstack all 3 rows
+    fc_parts.append(f"{''.join(row_labels)}vstack=inputs=3[out]")
+    final_label = '[out]'
 
     filter_complex = ';'.join(fc_parts)
 
@@ -241,6 +253,7 @@ def export_grid(pre_synced_files, out_path):
         '-map', final_label,
         '-c:v', 'libx264', '-preset', 'fast', '-crf', '20',
         '-pix_fmt', 'yuv420p',
+        '-t', str(duration),  # Set output duration
         out_path
     ]
 

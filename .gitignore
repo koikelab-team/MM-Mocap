@@ -17,6 +17,7 @@
 
 # Output folders and large archives
 /outputs/
+/test/
 /recordings/
 /merged/
 
