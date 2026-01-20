@@ -6,7 +6,7 @@ This repository contains a set of small Python helper scripts and demos to disco
 - **Purpose:** discover GoPros on the network, start/stop recording on all cameras, copy recordings to a PC, sort them into scenes, and synchronize/merge multi-camera footage.
 - **Orchestrator:** [main.py](main.py) runs the numbered scripts in numeric order to perform a full capture session.
 
-Running seperately is recommanded.
+# Running seperately is recommanded.
 
 Repository structure (root highlights):
 - [00.goprolist_and_start_usb_sync_all_settings_date_time.py](00.goprolist_and_start_usb_sync_all_settings_date_time.py) — discovery and initial configuration helpers
