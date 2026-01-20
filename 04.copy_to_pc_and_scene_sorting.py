@@ -73,39 +73,23 @@ def create_folder_structure_and_copy_files(destination_root):
             scenes.append([file])
 
     print(f"Total scenes created: {len(scenes)}")
-    
-    # Only copy the latest scene (most recent recording)
-    if not scenes:
-        print("No scenes found to copy.")
-        return
-    
-    # Get the latest scene (last one after sorting by time)
-    latest_scene = scenes[-1]
-    print(f"Copying only the latest scene with {len(latest_scene)} files (most recent recording)")
 
     total_files = 0
-    # Process only the latest scene
-    scenes_to_copy = [latest_scene]
-    for i, scene in enumerate(scenes_to_copy, start=1):
+    for i, scene in enumerate(scenes, start=1):
         # Определение времени съемки с основной (прайм) камеры
         prime_file = next((f for f in scene if f["serial_number"] == prime_camera_sn), scene[0])
-        # Use timestamp format: Take_YYYYMMDDHHMMSS (no underscores)
-        timestamp = prime_file["time"].strftime("%Y%m%d%H%M%S")
+        timestamp = prime_file["time"].strftime("%Y_%m_%d_%H_%M_%S")
         
-        # Create Take_XXXXXX/videos folder structure instead of scene folders
-        take_folder_name = f"Take_{timestamp}"
-        take_folder = destination_root / take_folder_name
-        scene_folder = take_folder / "videos"
+        # Создание названия папки с учетом времени съемки
+        scene_folder_name = f"scene{i:02d}_{timestamp}"
+        scene_folder = destination_root / scene_folder_name
         scene_folder.mkdir(parents=True, exist_ok=True)
         print(f"Scene {i}: {len(scene)} files")
         total_files += len(scene)
 
         for file in scene:
             source_url = f"http://{file['ip']}:8080/videos/DCIM/{file['folder']}/{file['name']}"
-            # Use last 4 digits of serial number for filename: cam_XXXX.mp4
-            serial_suffix = file['serial_number'][-4:] if len(file['serial_number']) >= 4 else file['serial_number']
-            file_extension = Path(file['name']).suffix
-            destination_file = scene_folder / f"cam_{serial_suffix}{file_extension}"
+            destination_file = scene_folder / f"{file['serial_number']}_{file['name']}"
             print(f"Copying file {file['name']} from {file['ip']} to {destination_file}")
             try:
                 with requests.get(source_url, stream=True) as response:
@@ -119,7 +103,7 @@ def create_folder_structure_and_copy_files(destination_root):
             except requests.RequestException as e:
                 print(f"Error downloading {file['name']} from {file['ip']}: {e}")
 
-    print(f"All files copied successfully: {total_files} files from the latest recording.")
+    print(f"All files copied successfully: {total_files} files in {len(scenes)} scenes.")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
