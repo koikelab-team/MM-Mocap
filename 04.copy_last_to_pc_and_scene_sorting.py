@@ -58,68 +58,94 @@ def create_folder_structure_and_copy_files(destination_root):
         print("No media found on any camera.")
         return
 
-    media_data.sort(key=lambda x: x["time"])
-    scenes = []
-
-    print("Sorting files into scenes...")
+    # Group files by camera serial number
+    files_by_camera = {}
     for file in media_data:
-        added_to_scene = False
-        for scene in scenes:
-            if abs((file["time"] - scene[0]["time"]).total_seconds()) <= 5:
-                scene.append(file)
-                added_to_scene = True
-                break
-        if not added_to_scene:
-            scenes.append([file])
-
-    print(f"Total scenes created: {len(scenes)}")
+        serial = file["serial_number"]
+        if serial not in files_by_camera:
+            files_by_camera[serial] = []
+        files_by_camera[serial].append(file)
     
-    # Only copy the latest scene (most recent recording)
-    if not scenes:
-        print("No scenes found to copy.")
+    # Sort files by time for each camera (newest first)
+    for serial in files_by_camera:
+        files_by_camera[serial].sort(key=lambda x: x["time"], reverse=True)
+    
+    print(f"Found files from {len(files_by_camera)} cameras")
+    
+    # Find the latest recording time across all cameras
+    latest_time = None
+    for serial, files in files_by_camera.items():
+        if files:
+            camera_latest = files[0]["time"]
+            if latest_time is None or camera_latest > latest_time:
+                latest_time = camera_latest
+    
+    if latest_time is None:
+        print("No media found to copy.")
         return
     
-    # Get the latest scene (last one after sorting by time)
-    latest_scene = scenes[-1]
-    print(f"Copying only the latest scene with {len(latest_scene)} files (most recent recording)")
+    print(f"Latest recording time: {latest_time}")
+    
+    # For each camera, find the file closest to the latest time (within 5 seconds)
+    take_files = []
+    for serial, files in files_by_camera.items():
+        if files:
+            # Find the file closest to latest_time (within 5 seconds tolerance)
+            closest_file = None
+            min_time_diff = float('inf')
+            for file in files:
+                time_diff = abs((file["time"] - latest_time).total_seconds())
+                if time_diff <= 5 and time_diff < min_time_diff:
+                    min_time_diff = time_diff
+                    closest_file = file
+            
+            # If no file within 5 seconds, use the latest file from this camera
+            if closest_file is None:
+                closest_file = files[0]
+                print(f"Warning: Camera {serial} has no file within 5 seconds of latest time, using latest file")
+            
+            take_files.append(closest_file)
+            print(f"Selected file from camera {serial}: {closest_file['name']} (time: {closest_file['time']})")
+    
+    if not take_files:
+        print("No files found to copy.")
+        return
+    
+    print(f"Creating Take with {len(take_files)} files from all cameras")
 
-    total_files = 0
-    # Process only the latest scene
-    scenes_to_copy = [latest_scene]
-    for i, scene in enumerate(scenes_to_copy, start=1):
-        # Определение времени съемки с основной (прайм) камеры
-        prime_file = next((f for f in scene if f["serial_number"] == prime_camera_sn), scene[0])
-        # Use timestamp format: Take_YYYYMMDDHHMMSS (no underscores)
-        timestamp = prime_file["time"].strftime("%Y%m%d%H%M%S")
-        
-        # Create Take_XXXXXX/videos folder structure instead of scene folders
-        take_folder_name = f"Take_{timestamp}"
-        take_folder = destination_root / take_folder_name
-        scene_folder = take_folder / "videos"
-        scene_folder.mkdir(parents=True, exist_ok=True)
-        print(f"Scene {i}: {len(scene)} files")
-        total_files += len(scene)
+    # Определение времени съемки с основной (прайм) камеры
+    prime_file = next((f for f in take_files if f["serial_number"] == prime_camera_sn), take_files[0])
+    # Use timestamp format: Take_YYYYMMDDHHMMSS (no underscores)
+    timestamp = prime_file["time"].strftime("%Y%m%d%H%M%S")
+    
+    # Create Take_XXXXXX/videos folder structure
+    take_folder_name = f"Take_{timestamp}"
+    take_folder = destination_root / take_folder_name
+    videos_folder = take_folder / "videos"
+    videos_folder.mkdir(parents=True, exist_ok=True)
+    
+    print(f"Copying {len(take_files)} files to {take_folder_name}")
+    
+    for file in take_files:
+        source_url = f"http://{file['ip']}:8080/videos/DCIM/{file['folder']}/{file['name']}"
+        # Use last 4 digits of serial number for filename: cam_XXXX.mp4
+        serial_suffix = file['serial_number'][-4:] if len(file['serial_number']) >= 4 else file['serial_number']
+        file_extension = Path(file['name']).suffix
+        destination_file = videos_folder / f"cam_{serial_suffix}{file_extension}"
+        print(f"Copying file {file['name']} from {file['ip']} to {destination_file}")
+        try:
+            with requests.get(source_url, stream=True) as response:
+                if response.status_code == 200:
+                    with open(destination_file, "wb") as out_file:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            out_file.write(chunk)
+                    print(f"File {file['name']} successfully copied.")
+                else:
+                    print(f"Failed to download {file['name']} from {file['ip']}. Response code: {response.status_code}")
+        except requests.RequestException as e:
+            print(f"Error downloading {file['name']} from {file['ip']}: {e}")
 
-        for file in scene:
-            source_url = f"http://{file['ip']}:8080/videos/DCIM/{file['folder']}/{file['name']}"
-            # Use last 4 digits of serial number for filename: cam_XXXX.mp4
-            serial_suffix = file['serial_number'][-4:] if len(file['serial_number']) >= 4 else file['serial_number']
-            file_extension = Path(file['name']).suffix
-            destination_file = scene_folder / f"cam_{serial_suffix}{file_extension}"
-            print(f"Copying file {file['name']} from {file['ip']} to {destination_file}")
-            try:
-                with requests.get(source_url, stream=True) as response:
-                    if response.status_code == 200:
-                        with open(destination_file, "wb") as out_file:
-                            for chunk in response.iter_content(chunk_size=8192):
-                                out_file.write(chunk)
-                        print(f"File {file['name']} successfully copied.")
-                    else:
-                        print(f"Failed to download {file['name']} from {file['ip']}. Response code: {response.status_code}")
-            except requests.RequestException as e:
-                print(f"Error downloading {file['name']} from {file['ip']}: {e}")
-
-    print(f"All files copied successfully: {total_files} files from the latest recording.")
+    print(f"All files copied successfully: {len(take_files)} files from all cameras.")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
