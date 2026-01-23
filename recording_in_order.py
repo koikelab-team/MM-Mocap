@@ -151,7 +151,7 @@ def sequential_record_test():
         
         # Wait 5 seconds
         print(f"  Recording for 5 seconds...")
-        time.sleep(5)
+        time.sleep(3)
         
         # Stop recording
         print(f"  Stopping recording...")
